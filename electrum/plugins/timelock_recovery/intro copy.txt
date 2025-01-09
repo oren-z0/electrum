@@ -1,0 +1,5 @@
+So you have accumulated a significant amount of Bitcoin in a well-secured wallet with master keys: a random seed, a passphrase, and maybe even a multisig by multiple devices.
+Nobody else can access your funds.
+But what if you lose your master keys? If you die in an accident - how could your loved-ones receive the funds?
+Some wallets handle this issue with complicated multisig solutions, where your inheritors and a 3rd-party service hold keys that together can access your funds. Other Bitcoiners just leave clues to their inheritors how to find the master keys - which could be an immediate security risk if those clues are exopsed.
+Using <span class="italic">Bitcoin Relative Timelocks</span>, this extension will create recovery plan - a sequence of two signed-in-advance transactions, which you can print and give to your loved-ones to be broadcasted in case something happens to you (another option is to store in a less-cryptic location than your master keys). The transactions operate in the following way:
