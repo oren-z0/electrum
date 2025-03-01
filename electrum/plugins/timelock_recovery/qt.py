@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (QVBoxLayout, QHBoxLayout, QLabel, QMenu,
                              QPushButton, QLineEdit, QScrollArea, QGridLayout, QFileDialog)
 
 from electrum import constants, version
-from electrum.gui.common_qt.util import get_font_id
+from electrum.gui.common_qt.util import draw_qr, get_font_id
 from electrum.gui.qt.paytoedit import PayToEdit
 from electrum.bitcoin import COIN, address_to_script, DummyAddress
 from electrum.payment_identifier import PaymentIdentifierType
@@ -1445,25 +1445,9 @@ class Plugin(TimelockRecoveryPlugin):
             self.logger.exception(repr(e))
             self.download_dialog.show_error(_("Error saving file"))
 
-    def _paint_qr(self, qr: qrcode.main.QRCode) -> QImage:
-        matrix = qr.get_matrix()
-        k = len(matrix)
-        border_color = Qt.GlobalColor.white
+    @classmethod
+    def _paint_qr(cls, qr: qrcode.main.QRCode) -> QImage:
+        k = len(qr.get_matrix())
         base_img = QImage(k * 5, k * 5, QImage.Format.Format_ARGB32)
-        base_img.fill(border_color)
-        qrpainter = QPainter()
-        qrpainter.begin(base_img)
-        boxsize = 5
-        size = k * boxsize
-        left = (base_img.width() - size)//2
-        top = (base_img.height() - size)//2
-        qrpainter.setBrush(Qt.GlobalColor.black)
-        qrpainter.setPen(Qt.GlobalColor.black)
-
-        for r in range(k):
-            for c in range(k):
-                if matrix[r][c]:
-                    qrpainter.drawRect(left+c*boxsize, top+r*boxsize, boxsize - 1, boxsize - 1)
-        qrpainter.end()
+        draw_qr(qr=qr, paint_device=base_img)
         return base_img
-
