@@ -16,7 +16,7 @@ import json
 import hashlib
 from datetime import datetime
 from functools import partial
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 from decimal import Decimal
 
 import qrcode
@@ -754,6 +754,17 @@ class Plugin(TimelockRecoveryPlugin):
 
         return bool(self.download_dialog.exec())
 
+    @classmethod
+    def _checksum(cls, json_data: dict[str, Any]) -> str:
+        # Assumes the values have a consistent json representation (not a key-value
+        # object whose fields can be ordered in multiple ways).
+        return hashlib.sha256(json.dumps(
+            sorted(json_data.items()),
+            skipkeys=False, ensure_ascii=True, check_circular=True,
+            allow_nan=True, cls=None, indent=None, separators=(',', ':'),
+            default=None, sort_keys=False,
+        ).encode()).hexdigest()
+
     def _save_recovery_plan_json(self):
         try:
             # Open a Save As dialog to get the file path
@@ -765,25 +776,26 @@ class Plugin(TimelockRecoveryPlugin):
             )
             if not file_path:
                 return
-            with open(file_path, "w") as f:
+            with open(file_path, "w") as json_file:
                 json_data = {
                     "kind": "timelock-recovery-plan",
                     "id": self.recovery_plan_id,
                     "created_at": self.recovery_plan_created_at.isoformat(),
                     "plugin_version": self.VERSION,
-                    "wallet_kind": "electrum",
+                    "wallet_kind": "Electrum",
                     "wallet_version": version.ELECTRUM_VERSION,
                     "wallet_name": self.wallet_name,
                     "timelock_days": self.timelock_days,
                     "alert_address": self.alert_address,
+                    "alert_inputs": [tx_input.prevout.to_str() for tx_input in self.alert_tx.inputs()],
                     "alert_tx": self.alert_tx.serialize().upper(),
                     "alert_txid": self.alert_tx.txid(),
                     "recovery_tx": self.recovery_tx.serialize().upper(),
                     "recovery_txid": self.recovery_tx.txid(),
                 }
                 # Simple checksum to ensure the file is not corrupted by foolish users
-                json_data["checksum"] = hashlib.sha256(json.dumps(sorted(json_data.items()), separators=(',', ':')).encode()).hexdigest()
-                json.dump(json_data, f, indent=2)
+                json_data["checksum"] = self._checksum(json_data)
+                json.dump(json_data, json_file, indent=2)
             self.download_dialog.show_message(_("File saved successfully"))
         except Exception as e:
             self.logger.exception(repr(e))
@@ -806,18 +818,17 @@ class Plugin(TimelockRecoveryPlugin):
                     "id": self.recovery_plan_id,
                     "created_at": self.recovery_plan_created_at.isoformat(),
                     "plugin_version": self.VERSION,
-                    "wallet_kind": "electrum",
+                    "wallet_kind": "Electrum",
                     "wallet_version": version.ELECTRUM_VERSION,
                     "wallet_name": self.wallet_name,
                     "timelock_days": self.timelock_days,
-                    "alert_address": self.alert_address,
                     "alert_txid": self.alert_tx.txid(),
                     "cancellation_address": self.cancellation_address,
                     "cancellation_tx": self.cancellation_tx.serialize().upper(),
                     "cancellation_txid": self.cancellation_tx.txid(),
                 }
                 # Simple checksum to ensure the file is not corrupted by foolish users
-                json_data["checksum"] = hashlib.sha256(json.dumps(sorted(json_data.items()), separators=(',', ':')).encode()).hexdigest()
+                json_data["checksum"] = self._checksum(json_data)
                 json.dump(json_data, f, indent=2)
             self.download_dialog.show_message(_("File saved successfully"))
         except Exception as e:
