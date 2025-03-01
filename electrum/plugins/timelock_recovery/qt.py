@@ -22,12 +22,13 @@ from decimal import Decimal
 import qrcode
 from PyQt6.QtPrintSupport import QPrinter
 from PyQt6.QtCore import Qt, QRectF, QMarginsF
-from PyQt6.QtGui import (QImage, QPainter, QFontDatabase, QFont, QIntValidator,
+from PyQt6.QtGui import (QImage, QPainter, QFont, QIntValidator,
                          QPageSize, QPageLayout, QFontMetrics)
 from PyQt6.QtWidgets import (QVBoxLayout, QHBoxLayout, QLabel, QMenu,
                              QPushButton, QLineEdit, QScrollArea, QGridLayout, QFileDialog)
 
 from electrum import constants, version
+from electrum.gui.common_qt.util import get_font_id
 from electrum.gui.qt.paytoedit import PayToEdit
 from electrum.bitcoin import COIN, address_to_script, DummyAddress
 from electrum.payment_identifier import PaymentIdentifierType
@@ -85,6 +86,7 @@ class PartialTxInputWithFixedNsequence(PartialTxInput):
 class Plugin(TimelockRecoveryPlugin):
     base_dir: str
     _init_qt_received: bool
+    font_name: str
     small_logo_bytes: bytes
     large_logo_bytes: bytes
     intro_text: str
@@ -112,6 +114,7 @@ class Plugin(TimelockRecoveryPlugin):
         make_dir(self.base_dir)
 
         self._init_qt_received = False
+        self.font_name = 'Monospace'
         self.small_logo_bytes = self.read_file("timelock_recovery_60.png")
         self.large_logo_bytes = self.read_file("timelock_recovery_820.png")
         self.intro_text = self.read_file("intro.txt").decode('utf-8')
@@ -122,8 +125,8 @@ class Plugin(TimelockRecoveryPlugin):
             return
         self._init_qt_received = True
         # load custom fonts (note: here, and not in __init__, as it needs the QApplication to be created)
-        QFontDatabase.addApplicationFont(os.path.join(os.path.dirname(__file__), 'PTMono-Regular.ttf'))
-        QFontDatabase.addApplicationFont(os.path.join(os.path.dirname(__file__), 'PTMono-Bold.ttf'))
+        if get_font_id('PTMono-Regular.ttf') >= 0 and get_font_id('PTMono-Bold.ttf') >= 0:
+            self.font_name = 'PT Mono'
 
     @hook
     def create_status_bar(self, sb):
@@ -848,16 +851,16 @@ class Plugin(TimelockRecoveryPlugin):
             pixels_per_point = printer.resolution() / 72.0
 
             # Set up fonts
-            header_font = QFont("PT Mono", 8)
+            header_font = QFont(self.font_name, 8)
             header_line_spacing = QFontMetrics(header_font).lineSpacing() * pixels_per_point
-            title_font = QFont("PT Mono", 18, QFont.Weight.Bold)
+            title_font = QFont(self.font_name, 18, QFont.Weight.Bold)
             title_line_spacing = QFontMetrics(title_font).height() * pixels_per_point
-            subtitle_font = QFont("PT Mono", 10)
+            subtitle_font = QFont(self.font_name, 10)
             subtitle_line_spacing = QFontMetrics(subtitle_font).height() * pixels_per_point
-            title_small_font = QFont("PT Mono", 16, QFont.Weight.Bold)
+            title_small_font = QFont(self.font_name, 16, QFont.Weight.Bold)
             title_small_line_spacing = QFontMetrics(title_small_font).height() * pixels_per_point
-            body_font = QFont("PT Mono", 9)
-            body_small_font = QFont("PT Mono", 8)
+            body_font = QFont(self.font_name, 9)
+            body_small_font = QFont(self.font_name, 8)
             body_small_line_spacing = QFontMetrics(body_small_font).lineSpacing() * pixels_per_point
 
             # Get page dimensions
@@ -1238,14 +1241,14 @@ class Plugin(TimelockRecoveryPlugin):
             pixels_per_point = printer.resolution() / 72.0
 
             # Setup fonts
-            header_font = QFont("PT Mono", 8)
+            header_font = QFont(self.font_name, 8)
             header_line_spacing = QFontMetrics(header_font).lineSpacing() * pixels_per_point
-            title_font = QFont("PT Mono", 18, QFont.Weight.Bold)
+            title_font = QFont(self.font_name, 18, QFont.Weight.Bold)
             title_line_spacing = QFontMetrics(title_font).height() * pixels_per_point
-            subtitle_font = QFont("PT Mono", 10)
+            subtitle_font = QFont(self.font_name, 10)
             subtitle_line_spacing = QFontMetrics(subtitle_font).height() * pixels_per_point
-            body_font = QFont("PT Mono", 9)
-            body_small_font = QFont("PT Mono", 8)
+            body_font = QFont(self.font_name, 9)
+            body_small_font = QFont(self.font_name, 8)
             body_small_line_spacing = QFontMetrics(body_small_font).lineSpacing() * pixels_per_point
 
             # Start painting
