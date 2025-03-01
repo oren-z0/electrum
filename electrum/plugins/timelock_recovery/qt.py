@@ -409,7 +409,7 @@ class Plugin(TimelockRecoveryPlugin):
             for output in self.outputs
         ]
         make_tx = lambda fee_est, *, confirmed_only=False: self.wallet.make_unsigned_transaction(
-            coins=main_window.get_coins(nonlocal_only=False, confirmed_only=confirmed_only),
+            coins=main_window.get_coins(confirmed_only=confirmed_only),
             outputs=alert_transaction_outputs,
             fee=fee_est,
             is_sweep=False,
