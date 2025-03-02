@@ -41,6 +41,7 @@ from electrum.gui.qt.main_window import StatusBarButton
 from electrum.gui.qt.util import read_QIcon_from_bytes, read_QPixmap_from_bytes
 
 from .timelock_recovery import TimelockRecoveryPlugin
+from . import version as plugin_version
 
 
 if TYPE_CHECKING:
@@ -781,7 +782,7 @@ class Plugin(TimelockRecoveryPlugin):
                     "kind": "timelock-recovery-plan",
                     "id": self.recovery_plan_id,
                     "created_at": self.recovery_plan_created_at.isoformat(),
-                    "plugin_version": self.VERSION,
+                    "plugin_version": plugin_version,
                     "wallet_kind": "Electrum",
                     "wallet_version": version.ELECTRUM_VERSION,
                     "wallet_name": self.wallet_name,
@@ -817,7 +818,7 @@ class Plugin(TimelockRecoveryPlugin):
                     "kind": "timelock-cancellation-plan",
                     "id": self.recovery_plan_id,
                     "created_at": self.recovery_plan_created_at.isoformat(),
-                    "plugin_version": self.VERSION,
+                    "plugin_version": plugin_version,
                     "wallet_kind": "Electrum",
                     "wallet_version": version.ELECTRUM_VERSION,
                     "wallet_name": self.wallet_name,
@@ -915,7 +916,7 @@ class Plugin(TimelockRecoveryPlugin):
             painter.setFont(subtitle_font)
             painter.drawText(
                 QRectF(0, current_height, page_width, subtitle_line_spacing + 20), Qt.AlignmentFlag.AlignCenter,
-                f"Electrum Version: {version.ELECTRUM_VERSION} - Plugin Version: {self.VERSION}"
+                f"Electrum Version: {version.ELECTRUM_VERSION} - Plugin Version: {plugin_version}"
             )
             current_height += subtitle_line_spacing + 60
 
@@ -1312,7 +1313,7 @@ class Plugin(TimelockRecoveryPlugin):
             painter.setFont(subtitle_font)
             painter.drawText(
                 QRectF(0, current_height, page_width, subtitle_line_spacing + 20), Qt.AlignmentFlag.AlignCenter,
-                f"Electrum Version: {version.ELECTRUM_VERSION} - Plugin Version: {self.VERSION}"
+                f"Electrum Version: {version.ELECTRUM_VERSION} - Plugin Version: {plugin_version}"
             )
             current_height += subtitle_line_spacing + 60
 
