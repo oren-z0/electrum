@@ -63,10 +63,6 @@ def selectable_label(text: str) -> QLabel:
     label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     return label
 
-def format_sats_as_btc(value: int) -> str:
-    return f"{(Decimal(value) / Decimal(COIN)):.8f}"
-
-
 class Plugin(TimelockRecoveryPlugin):
     base_dir: str
     _init_qt_received: bool
@@ -881,7 +877,7 @@ class Plugin(TimelockRecoveryPlugin):
                 f"This document will guide you through the process of recovering the funds on wallet: {context.wallet_name}. "
                 f"The process will take at least {context.timelock_days} days, and will eventually send the following amount "
                 f"to the following {'address' if len(recovery_tx_outputs) == 1 else 'addresses'}:\n\n"
-                + '\n'.join(f'• {output.address}: {format_sats_as_btc(output.value)} BTC' for output in recovery_tx_outputs) + "\n\n"
+                + '\n'.join(f'• {output.address}: {context.main_window.config.format_amount_and_units(output.value)}' for output in recovery_tx_outputs) + "\n\n"
                 f"Before proceeding, MAKE SURE THAT YOU HAVE ACCESS TO THE {'WALLET OF THIS ADDRESS' if len(recovery_tx_outputs) == 1 else 'WALLETS OF THESE ADDRESSES'}, "
                 f"OR TRUST THE {'OWNER OF THIS ADDRESS' if len(recovery_tx_outputs) == 1 else 'OWNERS OF THESE ADDRESSES'}. "
                 "The simplest way to do so is to send a small amount to the address, and then trying "
