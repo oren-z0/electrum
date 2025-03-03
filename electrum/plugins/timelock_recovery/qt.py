@@ -30,28 +30,27 @@ from PyQt6.QtWidgets import (QVBoxLayout, QHBoxLayout, QLabel, QMenu,
 from electrum import constants, version
 from electrum.gui.common_qt.util import draw_qr, get_font_id
 from electrum.gui.qt.paytoedit import PayToEdit
-from electrum.bitcoin import COIN, address_to_script, DummyAddress
+from electrum.bitcoin import DummyAddress
 from electrum.payment_identifier import PaymentIdentifierType
 from electrum.plugin import hook, run_hook
 from electrum.i18n import _
-from electrum.transaction import PartialTxInput, PartialTxOutput, TxOutpoint
-from electrum.util import make_dir, bfh
+from electrum.transaction import PartialTxOutput
+from electrum.util import make_dir
 from electrum.gui.qt.util import ColorScheme, WindowModalDialog, Buttons, HelpLabel
 from electrum.gui.qt.main_window import StatusBarButton
 from electrum.gui.qt.util import read_QIcon_from_bytes, read_QPixmap_from_bytes
 
 from . import version as plugin_version
-from .timelock_recovery import TimelockRecoveryPlugin, TimelockRecoveryContext, PartialTxInputWithFixedNsequence
+from .timelock_recovery import TimelockRecoveryPlugin, TimelockRecoveryContext
 
 
 if TYPE_CHECKING:
     from electrum.gui.qt import ElectrumGui
-    from electrum.transaction import PartialTransaction, TxOutput
+    from electrum.transaction import PartialTransaction
     from PyQt6.QtWidgets import QStatusBar
 
 
 AGREEMENT_TEXT = "I understand that using this wallet after generating a Timelock Recovery plan might break the plan"
-ANCHOR_OUTPUT_AMOUNT_SATS = 600
 MIN_LOCKTIME_DAYS = 2
 # 0xFFFF * 512 seconds = 388.36 days.
 MAX_LOCKTIME_DAYS = 388
@@ -349,21 +348,9 @@ class Plugin(TimelockRecoveryPlugin):
         next_button.setEnabled(True)
 
     def create_alert_fee_dialog(self, context: TimelockRecoveryContext):
-        alert_transaction_outputs = [
-            PartialTxOutput(scriptpubkey=address_to_script(context.get_alert_address()), value='!'),
-        ] + [
-            PartialTxOutput(scriptpubkey=output.scriptpubkey, value=ANCHOR_OUTPUT_AMOUNT_SATS)
-            for output in context.outputs
-        ]
-        make_tx = lambda fee_est, *, confirmed_only=False: context.wallet.make_unsigned_transaction(
-            coins=context.main_window.get_coins(confirmed_only=confirmed_only),
-            outputs=alert_transaction_outputs,
-            fee=fee_est,
-            is_sweep=False,
-        )
         tx: Optional['PartialTransaction']
         is_preview: bool
-        tx, is_preview = context.main_window.confirm_tx_dialog(make_tx, '!', allow_preview=False)
+        tx, is_preview = context.main_window.confirm_tx_dialog(context.make_unsigned_alert_tx, '!', allow_preview=False)
         if tx is None or is_preview or tx.get_dummy_output(DummyAddress.SWAP):
             return
         if not tx.is_segwit():
@@ -391,39 +378,9 @@ class Plugin(TimelockRecoveryPlugin):
         )
 
     def create_recovery_fee_dialog(self, context: TimelockRecoveryContext):
-        prevouts: List[Tuple[int, 'TxOutput']] = [
-            (index, tx_output) for index, tx_output in enumerate(context.alert_tx.outputs())
-            if tx_output.address == context.get_alert_address() and tx_output.value != ANCHOR_OUTPUT_AMOUNT_SATS
-        ]
-        if len(prevouts) != 1:
-            context.main_window.show_error(_("Expected 1 output from the Alert transaction to the Alert Address, but got %d." % len(prevouts)))
-            return
-        prevout_index: int
-        prevout: 'TxOutput'
-        (prevout_index, prevout) = prevouts[0]
-
-        nsequence: int = round(context.timelock_days * 24 * 60 * 60 / 512)
-        if nsequence > 0xFFFF:
-            # Safety check - not expected to happen
-            raise ValueError("Sequence number is too large")
-        nsequence += 0x00400000 # time based lock instead of block-height based lock
-        tx_input = PartialTxInputWithFixedNsequence(
-            prevout=TxOutpoint(txid=bfh(context.alert_tx.txid()), out_idx=prevout_index),
-            nsequence=nsequence,
-        )
-        tx_input.utxo = context.alert_tx
-        tx_input.witness_utxo = prevout
-
-        make_tx = lambda fee_est, *, confirmed_only=False: context.wallet.make_unsigned_transaction(
-            coins=[tx_input],
-            outputs=[output for output in context.outputs if output.value != 0],
-            fee=fee_est,
-            is_sweep=False,
-        )
-
         tx: Optional['PartialTransaction']
         is_preview: bool
-        tx, is_preview = context.main_window.confirm_tx_dialog(make_tx, '!', allow_preview=False)
+        tx, is_preview = context.main_window.confirm_tx_dialog(context.make_unsigned_recovery_tx, '!', allow_preview=False)
         if tx is None or is_preview or tx.get_dummy_output(DummyAddress.SWAP):
             return
         if not tx.is_segwit():
@@ -544,33 +501,9 @@ class Plugin(TimelockRecoveryPlugin):
         return bool(cancel_dialog.exec())
 
     def create_cancellation_fee_dialog(self, context: TimelockRecoveryContext):
-        prevouts = [
-            (index, tx_output) for index, tx_output in enumerate(context.alert_tx.outputs())
-            if tx_output.address == context.get_alert_address() and tx_output.value != ANCHOR_OUTPUT_AMOUNT_SATS
-        ]
-        if len(prevouts) != 1:
-            context.main_window.show_error(_("Expected 1 output from the Alert transaction to the Alert Address, but got %d." % len(prevouts)))
-            return
-        (prevout_index, prevout) = prevouts[0]
-
-        tx_input = PartialTxInput(
-            prevout=TxOutpoint(txid=bfh(context.alert_tx.txid()), out_idx=prevout_index),
-        )
-        tx_input.utxo = context.alert_tx
-        tx_input.witness_utxo = prevout
-
-        make_tx = lambda fee_est, *, confirmed_only=False: context.wallet.make_unsigned_transaction(
-            coins=[tx_input],
-            outputs=[
-                PartialTxOutput(scriptpubkey=address_to_script(context.get_cancellation_address()), value='!'),
-            ],
-            fee=fee_est,
-            is_sweep=False,
-        )
-
         tx: Optional['PartialTransaction']
         is_preview: bool
-        tx, is_preview = context.main_window.confirm_tx_dialog(make_tx, '!', allow_preview=False)
+        tx, is_preview = context.main_window.confirm_tx_dialog(context.make_unsigned_cancellation_tx, '!', allow_preview=False)
         if tx is None or is_preview or tx.get_dummy_output(DummyAddress.SWAP):
             return
         if not tx.is_segwit():
@@ -732,7 +665,7 @@ class Plugin(TimelockRecoveryPlugin):
                     "wallet_version": version.ELECTRUM_VERSION,
                     "wallet_name": context.wallet_name,
                     "timelock_days": context.timelock_days,
-                    "anchor_amount_sats": ANCHOR_OUTPUT_AMOUNT_SATS,
+                    "anchor_amount_sats": context.ANCHOR_OUTPUT_AMOUNT_SATS,
                     "anchor_addresses": [output.address for output in context.outputs],
                     "alert_address": context.get_alert_address(),
                     "alert_inputs": [tx_input.prevout.to_str() for tx_input in context.alert_tx.inputs()],
@@ -934,7 +867,7 @@ class Plugin(TimelockRecoveryPlugin):
                     f"as we'll explain later):\n"
                 )
                 for output in context.alert_tx.outputs():
-                    if output.address != context.get_alert_address() and output.value == ANCHOR_OUTPUT_AMOUNT_SATS:
+                    if output.address != context.get_alert_address() and output.value == context.ANCHOR_OUTPUT_AMOUNT_SATS:
                         step1_text += f"• {output.address}\n"
             else:
                 step1_text += "except for a small fee.\n"
