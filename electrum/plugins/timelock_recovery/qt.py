@@ -1126,196 +1126,204 @@ class Plugin(TimelockRecoveryPlugin):
             )
 
     def _save_cancellation_plan_pdf(self, context: TimelockRecoveryContext, download_dialog: WindowModalDialog):
+        # Open a Save As dialog to get the file path
+        file_path, _selected_filter = QFileDialog.getSaveFileName(
+            download_dialog,
+            _("Save Cancellation Plan PDF..."),
+            os.path.join(self.base_dir, "timelock-cancellation-plan-{}.pdf".format(context.recovery_plan_id)),
+            _("PDF files (*.pdf)")
+        )
+        if not file_path:
+            return
+
+        painter = QPainter()
+        temp_file_path: Optional[str] = None
+
         try:
-            cancellation_raw = context.cancellation_tx.serialize().upper()
-            if len(cancellation_raw) > 2300:
-                # Splitting the cancellation transaction into multiple QR codes is not implemented
-                # because it is unexpected to happen anyways.
-                raise Exception("Cancellation transaction is too large to be saved as a single QR code")
-
-            # Open a Save As dialog to get the file path
-            file_path, _selected_filter = QFileDialog.getSaveFileName(
-                download_dialog,
-                _("Save Cancellation Plan PDF..."),
-                os.path.join(self.base_dir, "timelock-cancellation-plan-{}.pdf".format(context.recovery_plan_id)),
-                _("PDF files (*.pdf)")
-            )
-            if not file_path:
-                return
-
-            printer = self._create_pdf_printer()
-
-            # Create painter
-            painter = QPainter()
+            with tempfile.NamedTemporaryFile(dir=os.path.dirname(file_path), prefix=f"{os.path.basename(file_path)}-", delete=False) as temp_file:
+                temp_file_path = temp_file.name
+            printer = self._create_pdf_printer(temp_file_path)
             if not painter.begin(printer):
                 return
+            self._paint_cancellation_plan_pdf(context, painter, printer)
+            painter.end()
+            shutil.move(temp_file_path, file_path)
+            download_dialog.show_message(_("File saved successfully"))
+        except (IOError, MemoryError) as e:
+            self.logger.exception(repr(e))
+            download_dialog.show_error(_("Error saving file"))
+            if temp_file_path is not None and os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+        finally:
+            if painter.isActive():
+                painter.end()
 
-            font_manager = FontManager(self.font_name, printer.resolution())
+    def _paint_cancellation_plan_pdf(self, context: TimelockRecoveryContext, painter: QPainter, printer: QPrinter):
+        cancellation_raw = context.cancellation_tx.serialize().upper()
+        if len(cancellation_raw) > 2300:
+            # Splitting the cancellation transaction into multiple QR codes is not implemented
+            # because it is unexpected to happen anyways.
+            raise Exception("Cancellation transaction is too large to be saved as a single QR code")
 
-            # Get page dimensions
-            page_rect = printer.pageRect(QPrinter.Unit.DevicePixel)
-            page_width = page_rect.width()
-            page_height = page_rect.height()
+        font_manager = FontManager(self.font_name, printer.resolution())
 
-            current_height = 0
-            page_number = 1
+        # Get page dimensions
+        page_rect = printer.pageRect(QPrinter.Unit.DevicePixel)
+        page_width = page_rect.width()
+        page_height = page_rect.height()
 
-            # Header
-            painter.setFont(font_manager.header_font)
-            painter.drawText(
-                QRectF(0, current_height, page_width, font_manager.header_line_spacing),
-                Qt.AlignmentFlag.AlignCenter,
-                f"Cancellation-Guide  Date: {context.recovery_plan_created_at.strftime('%Y-%m-%d %H:%M:%S %Z (%z)')}  ID: {context.recovery_plan_id}  Page: {page_number}"
-            )
-            current_height += font_manager.header_line_spacing + 40
+        current_height = 0
+        page_number = 1
 
-            current_height += self._paint_scaled_logo(painter, page_width, current_height) + 40
+        # Header
+        painter.setFont(font_manager.header_font)
+        painter.drawText(
+            QRectF(0, current_height, page_width, font_manager.header_line_spacing),
+            Qt.AlignmentFlag.AlignCenter,
+            f"Cancellation-Guide  Date: {context.recovery_plan_created_at.strftime('%Y-%m-%d %H:%M:%S %Z (%z)')}  ID: {context.recovery_plan_id}  Page: {page_number}"
+        )
+        current_height += font_manager.header_line_spacing + 40
 
-            # Title
-            painter.setFont(font_manager.title_font)
-            painter.drawText(
-                QRectF(0, current_height, page_width, font_manager.title_line_spacing),
-                Qt.AlignmentFlag.AlignCenter,
-                "Timelock-Recovery Cancellation Guide"
-            )
-            current_height += font_manager.title_line_spacing + 20
+        current_height += self._paint_scaled_logo(painter, page_width, current_height) + 40
 
-            # Subtitle
-            painter.setFont(font_manager.subtitle_font)
-            painter.drawText(
-                QRectF(0, current_height, page_width, font_manager.subtitle_line_spacing + 20), Qt.AlignmentFlag.AlignCenter,
-                f"Electrum Version: {version.ELECTRUM_VERSION} - Plugin Version: {plugin_version}"
-            )
-            current_height += font_manager.subtitle_line_spacing + 60
+        # Title
+        painter.setFont(font_manager.title_font)
+        painter.drawText(
+            QRectF(0, current_height, page_width, font_manager.title_line_spacing),
+            Qt.AlignmentFlag.AlignCenter,
+            "Timelock-Recovery Cancellation Guide"
+        )
+        current_height += font_manager.title_line_spacing + 20
 
-            # Main text
-            painter.setFont(font_manager.body_font)
-            explanation_text = (
-                f"This document is intended solely for the eyes of the owner of wallet: {context.wallet_name}. "
-                f"The Recovery Guide (the other document) will allow to transfer the funds from this wallet to "
-                f"a different wallet within {context.timelock_days} days. To prevent this from happening accidentally "
-                f"or maliciously by someone who found that document, you should periodically check if the Alert "
-                f"transaction has been broadcasted, using a Bitcoin block-explorer website such as:"
-            )
-            drawn_rect = painter.drawText(
-                QRectF(20, current_height, page_width - 40, page_height),
-                Qt.TextFlag.TextWordWrap,
-                explanation_text
-            )
-            current_height += drawn_rect.height() + 40
+        # Subtitle
+        painter.setFont(font_manager.subtitle_font)
+        painter.drawText(
+            QRectF(0, current_height, page_width, font_manager.subtitle_line_spacing + 20), Qt.AlignmentFlag.AlignCenter,
+            f"Electrum Version: {version.ELECTRUM_VERSION} - Plugin Version: {plugin_version}"
+        )
+        current_height += font_manager.subtitle_line_spacing + 60
 
-            # QR codes and links for transaction tracking
-            for link in [f"https://mempool.space/tx/{context.alert_tx.txid()}", f"https://blockstream.info/tx/{context.alert_tx.txid()}"]:
-                qr = qrcode.main.QRCode(
-                    error_correction=qrcode.constants.ERROR_CORRECT_H,
-                )
-                qr.add_data(link)
-                qr.make()
-                qr_image = self._paint_qr(qr)
+        # Main text
+        painter.setFont(font_manager.body_font)
+        explanation_text = (
+            f"This document is intended solely for the eyes of the owner of wallet: {context.wallet_name}. "
+            f"The Recovery Guide (the other document) will allow to transfer the funds from this wallet to "
+            f"a different wallet within {context.timelock_days} days. To prevent this from happening accidentally "
+            f"or maliciously by someone who found that document, you should periodically check if the Alert "
+            f"transaction has been broadcasted, using a Bitcoin block-explorer website such as:"
+        )
+        drawn_rect = painter.drawText(
+            QRectF(20, current_height, page_width - 40, page_height),
+            Qt.TextFlag.TextWordWrap,
+            explanation_text
+        )
+        current_height += drawn_rect.height() + 40
 
-                qr_width = int(page_width * 0.2)
-                qr_x = (page_width - qr_width) / 2
-                painter.drawImage(QRectF(qr_x, current_height, qr_width, qr_width), qr_image)
-                current_height += qr_width + 20
-
-                painter.setFont(font_manager.body_small_font)
-                painter.drawText(
-                    QRectF(0, current_height, page_width, font_manager.body_small_line_spacing),
-                    Qt.AlignmentFlag.AlignCenter,
-                    link
-                )
-                current_height += font_manager.body_small_line_spacing + 20
-
-            # Watch tower text
-            painter.setFont(font_manager.body_font)
-            drawn_rect = painter.drawText(
-                QRectF(20, current_height, page_width - 40, page_height - current_height),
-                Qt.TextFlag.TextWordWrap,
-                "It is also recommended to use a Watch-Tower service that will notify you immediately if the"
-                " Alert transaction has been broadcasted. For more details, visit: https://timelockrecovery.com ."
-            )
-            current_height += drawn_rect.height() + 40
-
-            # Cancellation transaction section
-            cancellation_text = (
-                "In case the Alert transaction has been broadcasted, and you want to stop the funds from "
-                "leaving this wallet, you can scan the QR code on page 2, and broadcast "
-                "the content using one of the following Bitcoin block-explorer websites:\n\n"
-                "• https://mempool.space/tx/push\n"
-                "• https://blockstream.info/tx/push\n"
-                "• https://coinb.in/#broadcast\n\n"
-                "If the transaction is not confirmed within reasonable time due to a low fee, you will have "
-                "to access the wallet and use Replace-By-Fee/Child-Pay-For-Parent to move the funds to a new "
-                "address on your wallet. (you can also pay to an Acceleration Service such as the one offered "
-                "by https://mempool.space)\n\n"
-                f"IMPORTANT NOTICE: If you lost the keys to access wallet {context.wallet_name} - do not broadcast the "
-                "transaction on page 2! In this case it is recommended to destroy all copies of this document."
-            )
-            painter.drawText(
-                QRectF(20, current_height, page_width - 40, page_height),
-                Qt.TextFlag.TextWordWrap,
-                cancellation_text
-            )
-
-            # New page for cancellation transaction
-            printer.newPage()
-            page_number += 1
-            current_height = 20
-
-            # Header
-            painter.setFont(font_manager.header_font)
-            painter.drawText(
-                QRectF(0, current_height, page_width, font_manager.header_line_spacing),
-                Qt.AlignmentFlag.AlignCenter,
-                f"Cancellation-Guide  Date: {context.recovery_plan_created_at.strftime('%Y-%m-%d %H:%M:%S %Z (%z)')}  ID: {context.recovery_plan_id}  Page: {page_number}"
-            )
-            current_height += font_manager.header_line_spacing + 20
-
-            # Cancellation transaction title
-            painter.setFont(font_manager.title_font)
-            painter.drawText(
-                QRectF(0, current_height, page_width, font_manager.title_line_spacing),
-                Qt.AlignmentFlag.AlignCenter,
-                "Cancellation Transaction"
-            )
-            current_height += font_manager.title_line_spacing + 20
-
-            # Transaction ID
-            painter.setFont(font_manager.subtitle_font)
-            painter.drawText(
-                QRectF(0, current_height, page_width, font_manager.subtitle_line_spacing),
-                Qt.AlignmentFlag.AlignCenter,
-                f"Transaction Id: {context.cancellation_tx.txid()}"
-            )
-            current_height += font_manager.subtitle_line_spacing + 20
-
-            # QR Code for cancellation transaction
+        # QR codes and links for transaction tracking
+        for link in [f"https://mempool.space/tx/{context.alert_tx.txid()}", f"https://blockstream.info/tx/{context.alert_tx.txid()}"]:
             qr = qrcode.main.QRCode(
-                error_correction=qrcode.constants.ERROR_CORRECT_Q,
+                error_correction=qrcode.constants.ERROR_CORRECT_H,
             )
-            qr.add_data(cancellation_raw)
+            qr.add_data(link)
             qr.make()
             qr_image = self._paint_qr(qr)
 
-            qr_width = int(page_width * 0.6)
+            qr_width = int(page_width * 0.2)
             qr_x = (page_width - qr_width) / 2
             painter.drawImage(QRectF(qr_x, current_height, qr_width, qr_width), qr_image)
-            current_height += qr_width + 40
+            current_height += qr_width + 20
 
-            # Raw transaction text
-            painter.setFont(font_manager.body_font)
+            painter.setFont(font_manager.body_small_font)
             painter.drawText(
-                QRectF(20, current_height, page_width - 40, page_height),
-                Qt.TextFlag.TextWrapAnywhere,
-                cancellation_raw
+                QRectF(0, current_height, page_width, font_manager.body_small_line_spacing),
+                Qt.AlignmentFlag.AlignCenter,
+                link
             )
+            current_height += font_manager.body_small_line_spacing + 20
 
-            painter.end()
+        # Watch tower text
+        painter.setFont(font_manager.body_font)
+        drawn_rect = painter.drawText(
+            QRectF(20, current_height, page_width - 40, page_height - current_height),
+            Qt.TextFlag.TextWordWrap,
+            "It is also recommended to use a Watch-Tower service that will notify you immediately if the"
+            " Alert transaction has been broadcasted. For more details, visit: https://timelockrecovery.com ."
+        )
+        current_height += drawn_rect.height() + 40
 
-            download_dialog.show_message(_("File saved successfully"))
-        except Exception as e:
-            self.logger.exception(repr(e))
-            download_dialog.show_error(_("Error saving file"))
+        # Cancellation transaction section
+        cancellation_text = (
+            "In case the Alert transaction has been broadcasted, and you want to stop the funds from "
+            "leaving this wallet, you can scan the QR code on page 2, and broadcast "
+            "the content using one of the following Bitcoin block-explorer websites:\n\n"
+            "• https://mempool.space/tx/push\n"
+            "• https://blockstream.info/tx/push\n"
+            "• https://coinb.in/#broadcast\n\n"
+            "If the transaction is not confirmed within reasonable time due to a low fee, you will have "
+            "to access the wallet and use Replace-By-Fee/Child-Pay-For-Parent to move the funds to a new "
+            "address on your wallet. (you can also pay to an Acceleration Service such as the one offered "
+            "by https://mempool.space)\n\n"
+            f"IMPORTANT NOTICE: If you lost the keys to access wallet {context.wallet_name} - do not broadcast the "
+            "transaction on page 2! In this case it is recommended to destroy all copies of this document."
+        )
+        painter.drawText(
+            QRectF(20, current_height, page_width - 40, page_height),
+            Qt.TextFlag.TextWordWrap,
+            cancellation_text
+        )
+
+        # New page for cancellation transaction
+        printer.newPage()
+        page_number += 1
+        current_height = 20
+
+        # Header
+        painter.setFont(font_manager.header_font)
+        painter.drawText(
+            QRectF(0, current_height, page_width, font_manager.header_line_spacing),
+            Qt.AlignmentFlag.AlignCenter,
+            f"Cancellation-Guide  Date: {context.recovery_plan_created_at.strftime('%Y-%m-%d %H:%M:%S %Z (%z)')}  ID: {context.recovery_plan_id}  Page: {page_number}"
+        )
+        current_height += font_manager.header_line_spacing + 20
+
+        # Cancellation transaction title
+        painter.setFont(font_manager.title_font)
+        painter.drawText(
+            QRectF(0, current_height, page_width, font_manager.title_line_spacing),
+            Qt.AlignmentFlag.AlignCenter,
+            "Cancellation Transaction"
+        )
+        current_height += font_manager.title_line_spacing + 20
+
+        # Transaction ID
+        painter.setFont(font_manager.subtitle_font)
+        painter.drawText(
+            QRectF(0, current_height, page_width, font_manager.subtitle_line_spacing),
+            Qt.AlignmentFlag.AlignCenter,
+            f"Transaction Id: {context.cancellation_tx.txid()}"
+        )
+        current_height += font_manager.subtitle_line_spacing + 20
+
+        # QR Code for cancellation transaction
+        qr = qrcode.main.QRCode(
+            error_correction=qrcode.constants.ERROR_CORRECT_Q,
+        )
+        qr.add_data(cancellation_raw)
+        qr.make()
+        qr_image = self._paint_qr(qr)
+
+        qr_width = int(page_width * 0.6)
+        qr_x = (page_width - qr_width) / 2
+        painter.drawImage(QRectF(qr_x, current_height, qr_width, qr_width), qr_image)
+        current_height += qr_width + 40
+
+        # Raw transaction text
+        painter.setFont(font_manager.body_font)
+        painter.drawText(
+            QRectF(20, current_height, page_width - 40, page_height),
+            Qt.TextFlag.TextWrapAnywhere,
+            cancellation_raw
+        )
 
     @classmethod
     def _paint_qr(cls, qr: qrcode.main.QRCode) -> QImage:
