@@ -51,8 +51,6 @@ if TYPE_CHECKING:
 
 
 AGREEMENT_TEXT = "I understand that using this wallet after generating a Timelock Recovery plan might break the plan"
-ALERT_ADDRESS_LABEL = "Timelock Recovery Alert Address"
-CANCELLATION_ADDRESS_LABEL = "Timelock Recovery Cancellation Address"
 ANCHOR_OUTPUT_AMOUNT_SATS = 600
 MIN_LOCKTIME_DAYS = 2
 # 0xFFFF * 512 seconds = 388.36 days.
@@ -192,8 +190,7 @@ class Plugin(TimelockRecoveryPlugin):
         plan_dialog.setContentsMargins(11, 11, 1, 1)
         plan_dialog.resize(800, plan_dialog.height())
 
-        context.alert_address = context.get_address_by_label(ALERT_ADDRESS_LABEL)
-        if not context.alert_address:
+        if not context.get_alert_address():
             plan_dialog.show_error(''.join([
                 _("No more addresses in your wallet."), " ",
                 _("You are using a non-deterministic wallet, which cannot create new addresses."), " ",
@@ -210,12 +207,12 @@ class Plugin(TimelockRecoveryPlugin):
             _("Alert Address"),
             _("This address in your wallet will receive the funds when the Alert Transaction is broadcasted."),
         ), grid_row, 0)
-        plan_grid.addWidget(selectable_label(context.alert_address), grid_row, 1, 1, 4)
+        plan_grid.addWidget(selectable_label(context.get_alert_address()), grid_row, 1, 1, 4)
         grid_row += 1
 
         fake_menu = QMenu()
-        fake_menu.addAction(_("Copy Address"), lambda: context.main_window.do_copy(context.alert_address))
-        run_hook('receive_menu', fake_menu, [context.alert_address], context.wallet)
+        fake_menu.addAction(_("Copy Address"), lambda: context.main_window.do_copy(context.get_alert_address()))
+        run_hook('receive_menu', fake_menu, [context.get_alert_address()], context.wallet)
 
         fake_menu_actions = list(fake_menu.actions())
         menu_actions_hbox = QHBoxLayout()
@@ -353,7 +350,7 @@ class Plugin(TimelockRecoveryPlugin):
 
     def create_alert_fee_dialog(self, context: TimelockRecoveryContext):
         alert_transaction_outputs = [
-            PartialTxOutput(scriptpubkey=address_to_script(context.alert_address), value='!'),
+            PartialTxOutput(scriptpubkey=address_to_script(context.get_alert_address()), value='!'),
         ] + [
             PartialTxOutput(scriptpubkey=output.scriptpubkey, value=ANCHOR_OUTPUT_AMOUNT_SATS)
             for output in context.outputs
@@ -396,7 +393,7 @@ class Plugin(TimelockRecoveryPlugin):
     def create_recovery_fee_dialog(self, context: TimelockRecoveryContext):
         prevouts: List[Tuple[int, 'TxOutput']] = [
             (index, tx_output) for index, tx_output in enumerate(context.alert_tx.outputs())
-            if tx_output.address == context.alert_address and tx_output.value != ANCHOR_OUTPUT_AMOUNT_SATS
+            if tx_output.address == context.get_alert_address() and tx_output.value != ANCHOR_OUTPUT_AMOUNT_SATS
         ]
         if len(prevouts) != 1:
             context.main_window.show_error(_("Expected 1 output from the Alert transaction to the Alert Address, but got %d." % len(prevouts)))
@@ -469,8 +466,7 @@ class Plugin(TimelockRecoveryPlugin):
         if not answer:
             context.cancellation_tx = None
             return self.create_download_dialog(context)
-        context.cancellation_address = context.get_address_by_label(CANCELLATION_ADDRESS_LABEL)
-        if not context.cancellation_address:
+        if not context.get_cancellation_address():
             context.main_window.show_error(''.join([
                 _("No more addresses in your wallet."), " ",
                 _("You are using a non-deterministic wallet, which cannot create new addresses."), " ",
@@ -483,8 +479,7 @@ class Plugin(TimelockRecoveryPlugin):
         cancel_dialog.setContentsMargins(11, 11, 1, 1)
         cancel_dialog.resize(800, cancel_dialog.height())
 
-        context.alert_address = context.get_address_by_label(ALERT_ADDRESS_LABEL)
-        if not context.alert_address:
+        if not context.get_alert_address():
             cancel_dialog.show_error(''.join([
                 _("No more addresses in your wallet."), " ",
                 _("You are using a non-deterministic wallet, which cannot create new addresses."), " ",
@@ -501,11 +496,11 @@ class Plugin(TimelockRecoveryPlugin):
             _("Cancellation Address"),
             _("This address in your wallet will receive the funds when the Cancellation transaction is broadcasted."),
         ), grid_row, 0)
-        cancel_grid.addWidget(selectable_label(context.cancellation_address), grid_row, 1, 1, 4)
+        cancel_grid.addWidget(selectable_label(context.get_cancellation_address()), grid_row, 1, 1, 4)
         grid_row += 1
         fake_menu = QMenu()
-        fake_menu.addAction(_("Copy Address"), lambda: context.main_window.do_copy(context.cancellation_address))
-        run_hook('receive_menu', fake_menu, [context.cancellation_address], context.wallet)
+        fake_menu.addAction(_("Copy Address"), lambda: context.main_window.do_copy(context.get_cancellation_address()))
+        run_hook('receive_menu', fake_menu, [context.get_cancellation_address()], context.wallet)
 
         fake_menu_actions = list(fake_menu.actions())
         menu_actions_hbox = QHBoxLayout()
@@ -551,7 +546,7 @@ class Plugin(TimelockRecoveryPlugin):
     def create_cancellation_fee_dialog(self, context: TimelockRecoveryContext):
         prevouts = [
             (index, tx_output) for index, tx_output in enumerate(context.alert_tx.outputs())
-            if tx_output.address == context.alert_address and tx_output.value != ANCHOR_OUTPUT_AMOUNT_SATS
+            if tx_output.address == context.get_alert_address() and tx_output.value != ANCHOR_OUTPUT_AMOUNT_SATS
         ]
         if len(prevouts) != 1:
             context.main_window.show_error(_("Expected 1 output from the Alert transaction to the Alert Address, but got %d." % len(prevouts)))
@@ -567,7 +562,7 @@ class Plugin(TimelockRecoveryPlugin):
         make_tx = lambda fee_est, *, confirmed_only=False: context.wallet.make_unsigned_transaction(
             coins=[tx_input],
             outputs=[
-                PartialTxOutput(scriptpubkey=address_to_script(context.cancellation_address), value='!'),
+                PartialTxOutput(scriptpubkey=address_to_script(context.get_cancellation_address()), value='!'),
             ],
             fee=fee_est,
             is_sweep=False,
@@ -739,7 +734,7 @@ class Plugin(TimelockRecoveryPlugin):
                     "timelock_days": context.timelock_days,
                     "anchor_amount_sats": ANCHOR_OUTPUT_AMOUNT_SATS,
                     "anchor_addresses": [output.address for output in context.outputs],
-                    "alert_address": context.alert_address,
+                    "alert_address": context.get_alert_address(),
                     "alert_inputs": [tx_input.prevout.to_str() for tx_input in context.alert_tx.inputs()],
                     "alert_tx": context.alert_tx.serialize().upper(),
                     "alert_txid": context.alert_tx.txid(),
@@ -781,7 +776,7 @@ class Plugin(TimelockRecoveryPlugin):
                     "wallet_name": context.wallet_name,
                     "timelock_days": context.timelock_days,
                     "alert_txid": context.alert_tx.txid(),
-                    "cancellation_address": context.cancellation_address,
+                    "cancellation_address": context.get_cancellation_address(),
                     "cancellation_tx": context.cancellation_tx.serialize().upper(),
                     "cancellation_txid": context.cancellation_tx.txid(),
                     "cancellation_fee": context.cancellation_tx.get_fee(),
@@ -939,7 +934,7 @@ class Plugin(TimelockRecoveryPlugin):
                     f"as we'll explain later):\n"
                 )
                 for output in context.alert_tx.outputs():
-                    if output.address != context.alert_address and output.value == ANCHOR_OUTPUT_AMOUNT_SATS:
+                    if output.address != context.get_alert_address() and output.value == ANCHOR_OUTPUT_AMOUNT_SATS:
                         step1_text += f"• {output.address}\n"
             else:
                 step1_text += "except for a small fee.\n"

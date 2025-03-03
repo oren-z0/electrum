@@ -8,26 +8,30 @@ if TYPE_CHECKING:
     from electrum.transaction import PartialTxOutput, PartialTransaction
     from electrum.wallet import Abstract_Wallet
 
+ALERT_ADDRESS_LABEL = "Timelock Recovery Alert Address"
+CANCELLATION_ADDRESS_LABEL = "Timelock Recovery Cancellation Address"
+
 class TimelockRecoveryContext:
     main_window: 'ElectrumWindow'
     wallet: 'Abstract_Wallet'
     wallet_name: str
-    timelock_days: Optional[int]
-    alert_address: Optional[str]
-    cancellation_address: Optional[str]
-    outputs: Optional[List['PartialTxOutput']]
-    alert_tx: Optional['PartialTransaction']
-    recovery_tx: Optional['PartialTransaction']
-    cancellation_tx: Optional['PartialTransaction']
-    recovery_plan_id: Optional[str]
-    recovery_plan_created_at: Optional[datetime]
+    timelock_days: Optional[int] = None
+    cancellation_address: Optional[str] = None
+    outputs: Optional[List['PartialTxOutput']] = None
+    alert_tx: Optional['PartialTransaction'] = None
+    recovery_tx: Optional['PartialTransaction'] = None
+    cancellation_tx: Optional['PartialTransaction'] = None
+    recovery_plan_id: Optional[str] = None
+    recovery_plan_created_at: Optional[datetime] = None
+    _alert_address: Optional[str] = None
+    _cancellation_address: Optional[str] = None
 
     def __init__(self, main_window: 'ElectrumWindow'):
         self.main_window = main_window
         self.wallet = main_window.wallet
         self.wallet_name = str(self.wallet)
 
-    def _get_address_by_label(self, label: str) -> Optional[str]:
+    def _get_address_by_label(self, label: str) -> str:
         unused_addresses = list(self.wallet.get_unused_addresses())
         for addr in unused_addresses:
             if self.wallet.get_label_for_address(addr) == label:
@@ -38,15 +42,20 @@ class TimelockRecoveryContext:
                 return addr
         if self.wallet.is_deterministic():
             addr = self.wallet.create_new_address(False)
-            self.wallet.set_label(addr, label)
-            return addr
-        return None
+            if addr:
+                self.wallet.set_label(addr, label)
+                return addr
+        return ''
 
-    def get_address_by_label(self, label: str) -> Optional[str]:
-        addr = self._get_address_by_label(label)
-        if addr:
-            self.wallet.set_reserved_state_of_address(addr, reserved=True)
-        return addr
+    def get_alert_address(self) -> str:
+        if self._alert_address is None:
+            self._alert_address = self._get_address_by_label(ALERT_ADDRESS_LABEL)
+        return self._alert_address
+
+    def get_cancellation_address(self) -> str:
+        if self._cancellation_address is None:
+            self._cancellation_address = self._get_address_by_label(CANCELLATION_ADDRESS_LABEL)
+        return self._cancellation_address
 
 class PartialTxInputWithFixedNsequence(PartialTxInput):
     _fixed_nsequence: int
