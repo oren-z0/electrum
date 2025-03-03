@@ -11,6 +11,21 @@ if TYPE_CHECKING:
 ALERT_ADDRESS_LABEL = "Timelock Recovery Alert Address"
 CANCELLATION_ADDRESS_LABEL = "Timelock Recovery Cancellation Address"
 
+class PartialTxInputWithFixedNsequence(PartialTxInput):
+    _fixed_nsequence: int
+
+    def __init__(self, *args, nsequence: int = 0xfffffffe, **kwargs):
+        self._fixed_nsequence = nsequence
+        super().__init__(*args, **kwargs)
+
+    @property
+    def nsequence(self) -> int:
+        return self._fixed_nsequence
+
+    @nsequence.setter
+    def nsequence(self, value: int):
+        pass # ignore override attempts
+
 class TimelockRecoveryContext:
     main_window: 'ElectrumWindow'
     wallet: 'Abstract_Wallet'
@@ -56,21 +71,6 @@ class TimelockRecoveryContext:
         if self._cancellation_address is None:
             self._cancellation_address = self._get_address_by_label(CANCELLATION_ADDRESS_LABEL)
         return self._cancellation_address
-
-class PartialTxInputWithFixedNsequence(PartialTxInput):
-    _fixed_nsequence: int
-
-    def __init__(self, *args, nsequence: int = 0xfffffffe, **kwargs):
-        self._fixed_nsequence = nsequence
-        super().__init__(*args, **kwargs)
-
-    @property
-    def nsequence(self) -> int:
-        return self._fixed_nsequence
-
-    @nsequence.setter
-    def nsequence(self, value: int):
-        pass # ignore override attempts
 
 class TimelockRecoveryPlugin(BasePlugin):
     def __init__(self, parent, config, name):
