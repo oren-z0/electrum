@@ -49,6 +49,7 @@ from .timelock_recovery import TimelockRecoveryPlugin, TimelockRecoveryContext
 if TYPE_CHECKING:
     from electrum.gui.qt import ElectrumGui
     from electrum.transaction import PartialTransaction
+    from electrum.gui.qt.main_window import ElectrumWindow
     from PyQt6.QtWidgets import QStatusBar
 
 
@@ -120,7 +121,9 @@ class Plugin(TimelockRecoveryPlugin):
         return False
 
     def setup_dialog(self, status_bar: 'QStatusBar') -> bool:
-        context = TimelockRecoveryContext(status_bar.parent())
+        main_window: 'ElectrumWindow' = status_bar.parent()
+        context = TimelockRecoveryContext(main_window.wallet)
+        context.main_window = main_window
 
         if constants.net.NET_NAME == 'regtest':
             return self.create_plan_dialog(context)

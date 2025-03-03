@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, List, Optional, Sequence, Tuple
 from electrum.bitcoin import address_to_script
 from electrum.plugin import BasePlugin
 from electrum.transaction import PartialTxOutput, PartialTxInput, TxOutpoint
@@ -29,9 +29,9 @@ class PartialTxInputWithFixedNsequence(PartialTxInput):
         pass # ignore override attempts
 
 class TimelockRecoveryContext:
-    main_window: 'ElectrumWindow'
     wallet: 'Abstract_Wallet'
     wallet_name: str
+    main_window: Optional['ElectrumWindow'] = None
     timelock_days: Optional[int] = None
     cancellation_address: Optional[str] = None
     outputs: Optional[List['PartialTxOutput']] = None
@@ -48,9 +48,8 @@ class TimelockRecoveryContext:
 
     ANCHOR_OUTPUT_AMOUNT_SATS = 600
 
-    def __init__(self, main_window: 'ElectrumWindow'):
-        self.main_window = main_window
-        self.wallet = main_window.wallet
+    def __init__(self, wallet: 'Abstract_Wallet'):
+        self.wallet = wallet
         self.wallet_name = str(self.wallet)
 
     def _get_address_by_label(self, label: str) -> str:
@@ -88,7 +87,7 @@ class TimelockRecoveryContext:
                 for output in self.outputs
             ]
         return self.wallet.make_unsigned_transaction(
-            coins=self.main_window.get_coins(confirmed_only=confirmed_only),
+            coins=self.wallet.get_spendable_coins(confirmed_only=confirmed_only),
             outputs=self._alert_tx_outputs,
             fee=fee_est,
             is_sweep=False,
