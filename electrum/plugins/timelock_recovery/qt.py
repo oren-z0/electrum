@@ -737,12 +737,19 @@ class Plugin(TimelockRecoveryPlugin):
                     "wallet_version": version.ELECTRUM_VERSION,
                     "wallet_name": context.wallet_name,
                     "timelock_days": context.timelock_days,
+                    "anchor_amount_sats": ANCHOR_OUTPUT_AMOUNT_SATS,
+                    "anchor_addresses": [output.address for output in context.outputs],
                     "alert_address": context.alert_address,
                     "alert_inputs": [tx_input.prevout.to_str() for tx_input in context.alert_tx.inputs()],
                     "alert_tx": context.alert_tx.serialize().upper(),
                     "alert_txid": context.alert_tx.txid(),
+                    "alert_fee": context.alert_tx.get_fee(),
+                    "alert_weight": context.alert_tx.estimated_weight(),
                     "recovery_tx": context.recovery_tx.serialize().upper(),
                     "recovery_txid": context.recovery_tx.txid(),
+                    "recovery_fee": context.recovery_tx.get_fee(),
+                    "recovery_weight": context.recovery_tx.estimated_weight(),
+                    "recovery_outputs": [[tx_output.address, tx_output.value] for tx_output in context.recovery_tx.outputs()],
                 }
                 # Simple checksum to ensure the file is not corrupted by foolish users
                 json_data["checksum"] = self._checksum(json_data)
@@ -777,6 +784,9 @@ class Plugin(TimelockRecoveryPlugin):
                     "cancellation_address": context.cancellation_address,
                     "cancellation_tx": context.cancellation_tx.serialize().upper(),
                     "cancellation_txid": context.cancellation_tx.txid(),
+                    "cancellation_fee": context.cancellation_tx.get_fee(),
+                    "cancellation_weight": context.cancellation_tx.estimated_weight(),
+                    "cancellation_amount": context.cancellation_tx.output_value(),
                 }
                 # Simple checksum to ensure the file is not corrupted by foolish users
                 json_data["checksum"] = self._checksum(json_data)
