@@ -60,6 +60,22 @@ def selectable_label(text: str) -> QLabel:
     label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     return label
 
+class FontManager:
+    def __init__(self, font_name: str, resolution: int):
+        pixels_per_point = resolution / 72.0
+        self.header_font = QFont(font_name, 8)
+        self.header_line_spacing = QFontMetrics(self.header_font).lineSpacing() * pixels_per_point
+        self.title_font = QFont(font_name, 18, QFont.Weight.Bold)
+        self.title_line_spacing = QFontMetrics(self.title_font).height() * pixels_per_point
+        self.subtitle_font = QFont(font_name, 10)
+        self.subtitle_line_spacing = QFontMetrics(self.subtitle_font).height() * pixels_per_point
+        self.title_small_font = QFont(font_name, 16, QFont.Weight.Bold)
+        self.title_small_line_spacing = QFontMetrics(self.title_small_font).height() * pixels_per_point
+        self.body_font = QFont(font_name, 9)
+        self.body_small_font = QFont(font_name, 8)
+        self.body_small_line_spacing = QFontMetrics(self.body_small_font).lineSpacing() * pixels_per_point
+
+
 class Plugin(TimelockRecoveryPlugin):
     base_dir: str
     _init_qt_received: bool
@@ -724,6 +740,29 @@ class Plugin(TimelockRecoveryPlugin):
             self.logger.exception(repr(e))
             download_dialog.show_error(_("Error saving file"))
 
+    def _create_pdf_printer(self, file_path: str) -> QPrinter:
+        printer = QPrinter()
+        printer.setResolution(600)
+        printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        printer.setOutputFileName(file_path)
+        printer.setPageMargins(QMarginsF(20, 20, 20, 20), QPageLayout.Unit.Point)
+        return printer
+
+    def _paint_scaled_logo(self, painter: QPainter, page_width: int, current_height: float) -> int:
+        logo_pixmap = read_QPixmap_from_bytes(self.large_logo_bytes)
+        logo_size = int(page_width / 10)
+        scaled_logo = logo_pixmap.scaled(
+            logo_size,
+            logo_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+        # Center the logo horizontally and draw at current_height
+        logo_x = (page_width - scaled_logo.width()) / 2
+        painter.drawPixmap(int(logo_x), int(current_height), scaled_logo)
+        return scaled_logo.height()
+
     def _save_recovery_plan_pdf(self, context: TimelockRecoveryContext, download_dialog: WindowModalDialog):
         try:
             # Open a Save As dialog to get the file path
@@ -735,33 +774,15 @@ class Plugin(TimelockRecoveryPlugin):
             )
             if not file_path:
                 return
-            # Create PDF printer
-            printer = QPrinter()
-            printer.setResolution(600)
-            printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
-            printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-            printer.setOutputFileName(file_path)
-            printer.setPageMargins(QMarginsF(20, 20, 20, 20), QPageLayout.Unit.Point)
+
+            printer = self._create_pdf_printer(file_path)
 
             # Create painter
             painter = QPainter()
             if not painter.begin(printer):
                 return
 
-            pixels_per_point = printer.resolution() / 72.0
-
-            # Set up fonts
-            header_font = QFont(self.font_name, 8)
-            header_line_spacing = QFontMetrics(header_font).lineSpacing() * pixels_per_point
-            title_font = QFont(self.font_name, 18, QFont.Weight.Bold)
-            title_line_spacing = QFontMetrics(title_font).height() * pixels_per_point
-            subtitle_font = QFont(self.font_name, 10)
-            subtitle_line_spacing = QFontMetrics(subtitle_font).height() * pixels_per_point
-            title_small_font = QFont(self.font_name, 16, QFont.Weight.Bold)
-            title_small_line_spacing = QFontMetrics(title_small_font).height() * pixels_per_point
-            body_font = QFont(self.font_name, 9)
-            body_small_font = QFont(self.font_name, 8)
-            body_small_line_spacing = QFontMetrics(body_small_font).lineSpacing() * pixels_per_point
+            font_manager = FontManager(self.font_name, printer.resolution())
 
             # Get page dimensions
             page_rect = printer.pageRect(QPrinter.Unit.DevicePixel)
@@ -772,45 +793,32 @@ class Plugin(TimelockRecoveryPlugin):
             page_number = 1
 
             # Header
-            painter.setFont(header_font)
+            painter.setFont(font_manager.header_font)
             painter.drawText(
-                QRectF(0, 0, page_width, header_line_spacing + 20),
+                QRectF(0, 0, page_width, font_manager.header_line_spacing + 20),
                 Qt.AlignmentFlag.AlignHCenter,
                 f"Recovery-Guide  Date: {context.recovery_plan_created_at.strftime('%Y-%m-%d %H:%M:%S %Z (%z)')}  ID: {context.recovery_plan_id}  Page: {page_number}",
             )
-            current_height += header_line_spacing + 40
+            current_height += font_manager.header_line_spacing + 40
 
-            # Add logo image
-            logo_pixmap = read_QPixmap_from_bytes(self.large_logo_bytes)
-            logo_size = int(page_width / 10)
-            scaled_logo = logo_pixmap.scaled(
-                logo_size,
-                logo_size,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            )
-
-            # Center the logo horizontally and draw at current_height
-            logo_x = (page_width - scaled_logo.width()) / 2
-            painter.drawPixmap(int(logo_x), int(current_height), scaled_logo)
-            current_height += scaled_logo.height() + 40  # Add padding below logo
+            current_height += self._paint_scaled_logo(painter, page_width, current_height) + 40
 
             # Title
-            painter.setFont(title_font)
-            painter.drawText(QRectF(0, current_height, page_width, title_line_spacing + 20), Qt.AlignmentFlag.AlignHCenter, "Timelock-Recovery Guide")
-            current_height += title_line_spacing + 20
+            painter.setFont(font_manager.title_font)
+            painter.drawText(QRectF(0, current_height, page_width, font_manager.title_line_spacing + 20), Qt.AlignmentFlag.AlignHCenter, "Timelock-Recovery Guide")
+            current_height += font_manager.title_line_spacing + 20
 
             # Subtitle
-            painter.setFont(subtitle_font)
+            painter.setFont(font_manager.subtitle_font)
             painter.drawText(
-                QRectF(0, current_height, page_width, subtitle_line_spacing + 20), Qt.AlignmentFlag.AlignCenter,
+                QRectF(0, current_height, page_width, font_manager.subtitle_line_spacing + 20), Qt.AlignmentFlag.AlignCenter,
                 f"Electrum Version: {version.ELECTRUM_VERSION} - Plugin Version: {plugin_version}"
             )
-            current_height += subtitle_line_spacing + 60
+            current_height += font_manager.subtitle_line_spacing + 60
 
             # Main content
             recovery_tx_outputs = context.recovery_tx.outputs()
-            painter.setFont(body_font)
+            painter.setFont(font_manager.body_font)
             intro_text = (
                 f"This document will guide you through the process of recovering the funds on wallet: {context.wallet_name}. "
                 f"The process will take at least {context.timelock_days} days, and will eventually send the following amount "
@@ -833,14 +841,14 @@ class Plugin(TimelockRecoveryPlugin):
             current_height += drawn_rect.height() + 20
 
             # Step 1
-            painter.setFont(title_small_font)
+            painter.setFont(font_manager.title_small_font)
             painter.drawText(
-                QRectF(0, current_height, page_width, title_small_line_spacing + 20),Qt.AlignmentFlag.AlignLeft,
+                QRectF(0, current_height, page_width, font_manager.title_small_line_spacing + 20),Qt.AlignmentFlag.AlignLeft,
                 "Step 1 - Broadcasting the Alert transaction",
             )
-            current_height += title_small_line_spacing + 20
+            current_height += font_manager.title_small_line_spacing + 20
 
-            painter.setFont(body_font)
+            painter.setFont(font_manager.body_font)
             # Calculate number of anchors
             num_anchors = len(context.alert_tx.outputs()) - 1
 
@@ -897,41 +905,41 @@ class Plugin(TimelockRecoveryPlugin):
                 current_height = 20
 
                 # Header
-                painter.setFont(header_font)
+                painter.setFont(font_manager.header_font)
                 painter.drawText(
-                    QRectF(0, current_height, page_width, header_line_spacing),
+                    QRectF(0, current_height, page_width, font_manager.header_line_spacing),
                     Qt.AlignmentFlag.AlignCenter,
                     f"Recovery-Guide  Date: {context.recovery_plan_created_at.strftime('%Y-%m-%d %H:%M:%S %Z (%z)')}  ID: {context.recovery_plan_id}  Page: {page_number}"
                 )
-                current_height += header_line_spacing + 20
+                current_height += font_manager.header_line_spacing + 20
 
                 # Title
-                painter.setFont(title_font)
+                painter.setFont(font_manager.title_font)
                 painter.drawText(
-                    QRectF(0, current_height, page_width, title_line_spacing),
+                    QRectF(0, current_height, page_width, font_manager.title_line_spacing),
                     Qt.AlignmentFlag.AlignCenter,
                     "Alert Transaction"
                 )
-                current_height += title_line_spacing + 20
+                current_height += font_manager.title_line_spacing + 20
 
                 # Transaction ID
-                painter.setFont(subtitle_font)
+                painter.setFont(font_manager.subtitle_font)
                 painter.drawText(
-                    QRectF(0, current_height, page_width, subtitle_line_spacing),
+                    QRectF(0, current_height, page_width, font_manager.subtitle_line_spacing),
                     Qt.AlignmentFlag.AlignCenter,
                     f"Transaction Id: {context.alert_tx.txid()}"
                 )
-                current_height += subtitle_line_spacing + 20
+                current_height += font_manager.subtitle_line_spacing + 20
 
                 # Part number if multiple parts
                 if len(alert_raw_parts) > 1:
-                    painter.setFont(subtitle_font)
+                    painter.setFont(font_manager.subtitle_font)
                     painter.drawText(
-                        QRectF(0, current_height, page_width, subtitle_line_spacing),
+                        QRectF(0, current_height, page_width, font_manager.subtitle_line_spacing),
                         Qt.AlignmentFlag.AlignCenter,
                         f"Part {i+1} of {len(alert_raw_parts)}"
                     )
-                    current_height += subtitle_line_spacing + 20
+                    current_height += font_manager.subtitle_line_spacing + 20
 
                 # QR Code
                 qr = qrcode.main.QRCode(
@@ -948,7 +956,7 @@ class Plugin(TimelockRecoveryPlugin):
                 current_height += qr_width + 40
 
                 # Raw text below QR
-                painter.setFont(body_font)
+                painter.setFont(font_manager.body_font)
                 painter.drawText(
                     QRectF(20, current_height, page_width, page_height - current_height),
                     Qt.TextFlag.TextWrapAnywhere,
@@ -959,22 +967,22 @@ class Plugin(TimelockRecoveryPlugin):
             page_number += 1
             current_height = 20
             # Header
-            painter.setFont(header_font)
+            painter.setFont(font_manager.header_font)
             painter.drawText(
-                QRectF(0, current_height, page_width, header_line_spacing),
+                QRectF(0, current_height, page_width, font_manager.header_line_spacing),
                 Qt.AlignmentFlag.AlignCenter,
                 f"Recovery-Guide  Date: {context.recovery_plan_created_at.strftime('%Y-%m-%d %H:%M:%S %Z (%z)')}  ID: {context.recovery_plan_id}  Page: {page_number}"
             )
-            current_height += header_line_spacing + 20
+            current_height += font_manager.header_line_spacing + 20
 
             # Step 2 page
-            painter.setFont(title_small_font)
-            painter.drawText(QRectF(20, current_height, page_width, title_small_line_spacing), Qt.AlignmentFlag.AlignLeft, "Step 2 - Waiting for the Alert transaction confirmation")
-            current_height += title_small_line_spacing + 20
+            painter.setFont(font_manager.title_small_font)
+            painter.drawText(QRectF(20, current_height, page_width, font_manager.title_small_line_spacing), Qt.AlignmentFlag.AlignLeft, "Step 2 - Waiting for the Alert transaction confirmation")
+            current_height += font_manager.title_small_line_spacing + 20
 
-            painter.setFont(body_font)
-            painter.drawText(QRectF(20, current_height, page_width, subtitle_line_spacing), Qt.AlignmentFlag.AlignLeft, "You can follow the Alert transaction via any of the following links:")
-            current_height += subtitle_line_spacing + 20
+            painter.setFont(font_manager.body_font)
+            painter.drawText(QRectF(20, current_height, page_width, font_manager.subtitle_line_spacing), Qt.AlignmentFlag.AlignLeft, "You can follow the Alert transaction via any of the following links:")
+            current_height += font_manager.subtitle_line_spacing + 20
 
             # QR codes and links for transaction tracking
             for link in [f"https://mempool.space/tx/{context.alert_tx.txid()}", f"https://blockstream.info/tx/{context.alert_tx.txid()}"]:
@@ -990,12 +998,12 @@ class Plugin(TimelockRecoveryPlugin):
                 painter.drawImage(QRectF(qr_x, current_height, qr_width, qr_width), qr_image)
                 current_height += qr_width + 20
 
-                painter.setFont(body_small_font)
-                painter.drawText(QRectF(0, current_height, page_width, body_small_line_spacing), Qt.AlignmentFlag.AlignCenter, link)
-                current_height += body_small_line_spacing + 20
+                painter.setFont(font_manager.body_small_font)
+                painter.drawText(QRectF(0, current_height, page_width, font_manager.body_small_line_spacing), Qt.AlignmentFlag.AlignCenter, link)
+                current_height += font_manager.body_small_line_spacing + 20
 
             # Explanation text
-            painter.setFont(body_font)
+            painter.setFont(font_manager.body_font)
             explanation_text = (
                 "Please wait for a while until the transaction is marked as \"confirmed\" (number of confirmations greater than 0). "
                 "The time that takes a transaction to confirm depends on the fee that it pays, compared to the fee that other "
@@ -1015,16 +1023,16 @@ class Plugin(TimelockRecoveryPlugin):
             current_height += drawn_rect.height() + 40
 
             # Step 3 header
-            painter.setFont(title_small_font)
-            painter.drawText(QRectF(20, current_height, page_width, title_small_line_spacing), Qt.AlignmentFlag.AlignLeft, "Step 3 - Broadcasting the Recovery transaction")
-            current_height += title_small_line_spacing + 20
+            painter.setFont(font_manager.title_small_font)
+            painter.drawText(QRectF(20, current_height, page_width, font_manager.title_small_line_spacing), Qt.AlignmentFlag.AlignLeft, "Step 3 - Broadcasting the Recovery transaction")
+            current_height += font_manager.title_small_line_spacing + 20
 
             # Split recovery transaction if needed
             recovery_raw = context.recovery_tx.serialize().upper()
             recovery_raw_parts = [recovery_raw[i:i+2100] for i in range(0, len(recovery_raw), 2100)] if len(recovery_raw) > 2300 else [recovery_raw]
 
             # Step 3 explanation
-            painter.setFont(body_font)
+            painter.setFont(font_manager.body_font)
             step3_text = (
                 f"Approximately {context.timelock_days} days after the Alert transaction has been confirmed, you "
                 "will be able to broadcast the second Recovery transaction that will send the funds to the final"
@@ -1042,41 +1050,41 @@ class Plugin(TimelockRecoveryPlugin):
                 current_height = 20
 
                 # Header
-                painter.setFont(header_font)
+                painter.setFont(font_manager.header_font)
                 painter.drawText(
-                    QRectF(0, current_height, page_width, header_line_spacing),
+                    QRectF(0, current_height, page_width, font_manager.header_line_spacing),
                     Qt.AlignmentFlag.AlignCenter,
                     f"Recovery-Guide  Date: {context.recovery_plan_created_at.strftime('%Y-%m-%d %H:%M:%S %Z (%z)')}  ID: {context.recovery_plan_id}  Page: {page_number}"
                 )
-                current_height += header_line_spacing + 20
+                current_height += font_manager.header_line_spacing + 20
 
                 # Title
-                painter.setFont(title_font)
+                painter.setFont(font_manager.title_font)
                 painter.drawText(
-                    QRectF(0, current_height, page_width, title_line_spacing),
+                    QRectF(0, current_height, page_width, font_manager.title_line_spacing),
                     Qt.AlignmentFlag.AlignCenter,
                     "Recovery Transaction"
                 )
-                current_height += title_line_spacing + 20
+                current_height += font_manager.title_line_spacing + 20
 
                 # Transaction ID
-                painter.setFont(subtitle_font)
+                painter.setFont(font_manager.subtitle_font)
                 painter.drawText(
-                    QRectF(0, current_height, page_width, subtitle_line_spacing),
+                    QRectF(0, current_height, page_width, font_manager.subtitle_line_spacing),
                     Qt.AlignmentFlag.AlignCenter,
                     f"Transaction Id: {context.recovery_tx.txid()}"
                 )
-                current_height += subtitle_line_spacing + 20
+                current_height += font_manager.subtitle_line_spacing + 20
 
                 # Part number if multiple parts
                 if len(recovery_raw_parts) > 1:
-                    painter.setFont(subtitle_font)
+                    painter.setFont(font_manager.subtitle_font)
                     painter.drawText(
-                        QRectF(0, current_height, page_width, subtitle_line_spacing),
+                        QRectF(0, current_height, page_width, font_manager.subtitle_line_spacing),
                         Qt.AlignmentFlag.AlignCenter,
                         f"Part {i+1} of {len(recovery_raw_parts)}"
                     )
-                    current_height += subtitle_line_spacing + 20
+                    current_height += font_manager.subtitle_line_spacing + 20
 
                 # QR Code
                 qr = qrcode.main.QRCode(
@@ -1093,7 +1101,7 @@ class Plugin(TimelockRecoveryPlugin):
                 current_height += qr_width + 40
 
                 # Raw text below QR
-                painter.setFont(body_font)
+                painter.setFont(font_manager.body_font)
                 painter.drawText(
                     QRectF(20, current_height, page_width, page_height - current_height),
                     Qt.TextFlag.TextWrapAnywhere,
@@ -1126,34 +1134,14 @@ class Plugin(TimelockRecoveryPlugin):
             if not file_path:
                 return
 
-            printer = QPrinter()
-            printer.setResolution(600)
-            printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
-            printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-            printer.setOutputFileName(file_path)
-            printer.setPageMargins(QMarginsF(20, 20, 20, 20), QPageLayout.Unit.Point)
+            printer = self._create_pdf_printer()
 
             # Create painter
             painter = QPainter()
             if not painter.begin(printer):
                 return
 
-            pixels_per_point = printer.resolution() / 72.0
-
-            # Setup fonts
-            header_font = QFont(self.font_name, 8)
-            header_line_spacing = QFontMetrics(header_font).lineSpacing() * pixels_per_point
-            title_font = QFont(self.font_name, 18, QFont.Weight.Bold)
-            title_line_spacing = QFontMetrics(title_font).height() * pixels_per_point
-            subtitle_font = QFont(self.font_name, 10)
-            subtitle_line_spacing = QFontMetrics(subtitle_font).height() * pixels_per_point
-            body_font = QFont(self.font_name, 9)
-            body_small_font = QFont(self.font_name, 8)
-            body_small_line_spacing = QFontMetrics(body_small_font).lineSpacing() * pixels_per_point
-
-            # Start painting
-            painter = QPainter()
-            painter.begin(printer)
+            font_manager = FontManager(self.font_name, printer.resolution())
 
             # Get page dimensions
             page_rect = printer.pageRect(QPrinter.Unit.DevicePixel)
@@ -1164,49 +1152,35 @@ class Plugin(TimelockRecoveryPlugin):
             page_number = 1
 
             # Header
-            painter.setFont(header_font)
+            painter.setFont(font_manager.header_font)
             painter.drawText(
-                QRectF(0, current_height, page_width, header_line_spacing),
+                QRectF(0, current_height, page_width, font_manager.header_line_spacing),
                 Qt.AlignmentFlag.AlignCenter,
                 f"Cancellation-Guide  Date: {context.recovery_plan_created_at.strftime('%Y-%m-%d %H:%M:%S %Z (%z)')}  ID: {context.recovery_plan_id}  Page: {page_number}"
             )
-            current_height += header_line_spacing + 40
+            current_height += font_manager.header_line_spacing + 40
 
-            # Add logo image
-            logo_pixmap = read_QPixmap_from_bytes(self.large_logo_bytes)
-            logo_size = int(page_width / 10)
-            scaled_logo = logo_pixmap.scaled(
-                logo_size,
-                logo_size,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            )
-
-            # Center the logo horizontally and draw at current_height
-            logo_x = (page_width - scaled_logo.width()) / 2
-            painter.drawPixmap(int(logo_x), int(current_height), scaled_logo)
-            current_height += scaled_logo.height() + 40  # Add padding below logo
-
+            current_height += self._paint_scaled_logo(painter, page_width, current_height) + 40
 
             # Title
-            painter.setFont(title_font)
+            painter.setFont(font_manager.title_font)
             painter.drawText(
-                QRectF(0, current_height, page_width, title_line_spacing),
+                QRectF(0, current_height, page_width, font_manager.title_line_spacing),
                 Qt.AlignmentFlag.AlignCenter,
                 "Timelock-Recovery Cancellation Guide"
             )
-            current_height += title_line_spacing + 20
+            current_height += font_manager.title_line_spacing + 20
 
             # Subtitle
-            painter.setFont(subtitle_font)
+            painter.setFont(font_manager.subtitle_font)
             painter.drawText(
-                QRectF(0, current_height, page_width, subtitle_line_spacing + 20), Qt.AlignmentFlag.AlignCenter,
+                QRectF(0, current_height, page_width, font_manager.subtitle_line_spacing + 20), Qt.AlignmentFlag.AlignCenter,
                 f"Electrum Version: {version.ELECTRUM_VERSION} - Plugin Version: {plugin_version}"
             )
-            current_height += subtitle_line_spacing + 60
+            current_height += font_manager.subtitle_line_spacing + 60
 
             # Main text
-            painter.setFont(body_font)
+            painter.setFont(font_manager.body_font)
             explanation_text = (
                 f"This document is intended solely for the eyes of the owner of wallet: {context.wallet_name}. "
                 f"The Recovery Guide (the other document) will allow to transfer the funds from this wallet to "
@@ -1235,16 +1209,16 @@ class Plugin(TimelockRecoveryPlugin):
                 painter.drawImage(QRectF(qr_x, current_height, qr_width, qr_width), qr_image)
                 current_height += qr_width + 20
 
-                painter.setFont(body_small_font)
+                painter.setFont(font_manager.body_small_font)
                 painter.drawText(
-                    QRectF(0, current_height, page_width, body_small_line_spacing),
+                    QRectF(0, current_height, page_width, font_manager.body_small_line_spacing),
                     Qt.AlignmentFlag.AlignCenter,
                     link
                 )
-                current_height += body_small_line_spacing + 20
+                current_height += font_manager.body_small_line_spacing + 20
 
             # Watch tower text
-            painter.setFont(body_font)
+            painter.setFont(font_manager.body_font)
             drawn_rect = painter.drawText(
                 QRectF(20, current_height, page_width - 40, page_height - current_height),
                 Qt.TextFlag.TextWordWrap,
@@ -1280,31 +1254,31 @@ class Plugin(TimelockRecoveryPlugin):
             current_height = 20
 
             # Header
-            painter.setFont(header_font)
+            painter.setFont(font_manager.header_font)
             painter.drawText(
-                QRectF(0, current_height, page_width, header_line_spacing),
+                QRectF(0, current_height, page_width, font_manager.header_line_spacing),
                 Qt.AlignmentFlag.AlignCenter,
                 f"Cancellation-Guide  Date: {context.recovery_plan_created_at.strftime('%Y-%m-%d %H:%M:%S %Z (%z)')}  ID: {context.recovery_plan_id}  Page: {page_number}"
             )
-            current_height += header_line_spacing + 20
+            current_height += font_manager.header_line_spacing + 20
 
             # Cancellation transaction title
-            painter.setFont(title_font)
+            painter.setFont(font_manager.title_font)
             painter.drawText(
-                QRectF(0, current_height, page_width, title_line_spacing),
+                QRectF(0, current_height, page_width, font_manager.title_line_spacing),
                 Qt.AlignmentFlag.AlignCenter,
                 "Cancellation Transaction"
             )
-            current_height += title_line_spacing + 20
+            current_height += font_manager.title_line_spacing + 20
 
             # Transaction ID
-            painter.setFont(subtitle_font)
+            painter.setFont(font_manager.subtitle_font)
             painter.drawText(
-                QRectF(0, current_height, page_width, subtitle_line_spacing),
+                QRectF(0, current_height, page_width, font_manager.subtitle_line_spacing),
                 Qt.AlignmentFlag.AlignCenter,
                 f"Transaction Id: {context.cancellation_tx.txid()}"
             )
-            current_height += subtitle_line_spacing + 20
+            current_height += font_manager.subtitle_line_spacing + 20
 
             # QR Code for cancellation transaction
             qr = qrcode.main.QRCode(
@@ -1320,7 +1294,7 @@ class Plugin(TimelockRecoveryPlugin):
             current_height += qr_width + 40
 
             # Raw transaction text
-            painter.setFont(body_font)
+            painter.setFont(font_manager.body_font)
             painter.drawText(
                 QRectF(20, current_height, page_width - 40, page_height),
                 Qt.TextFlag.TextWrapAnywhere,
